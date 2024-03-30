@@ -57,7 +57,6 @@ exports.getComment = async (ctx, next) => {
 };
 
 exports.postComment = async (ctx, next) => {
-  console.log(ctx.request.body);
   const { userId, vId, commentText, contentType, com_id } =
     await comment_schema.validateAsync(ctx.request.body);
   const data = {
@@ -77,4 +76,71 @@ exports.postComment = async (ctx, next) => {
     success: true,
   };
   // ctx.cc('发布评论成功！', 200, true);
+};
+
+// 获取所有评论
+exports.getAllComment = async (ctx, next) => {
+  let { offset, limit } = ctx.query;
+
+  let result = await comment.findAndCountAll({
+    order: [['id', 'DESC']],
+    include: [
+      {
+        model: wvv_users,
+        attributes: ['username', 'nickname', 'user_pic'],
+      },
+    ],
+    offset: (offset - 1) * limit,
+    limit: limit - 0,
+  });
+
+  // 格式化返回数据
+  result.rows = result.rows.map((item) => {
+    let { wvv_user, ...rest } = item.toJSON();
+    return Object.assign({}, rest, wvv_user);
+  });
+  if (result.count > 0)
+    ctx.body = {
+      status: 200,
+      message: '获取评论成功!',
+      total: result.count,
+      data: result.rows,
+      success: true,
+    };
+  else
+    ctx.body = {
+      status: 200,
+      message: '暂无更多数据了',
+      success: true,
+    };
+};
+
+// 删除信息
+exports.deleteComment = async (ctx, next) => {
+  const { id } = ctx.query;
+  const comType = await comment.findByPk(id);
+  let result;
+  if (comType && comType.type === 'v') {
+    // 使用 Sequelize 的 destroy 方法删除数据
+    result = await comment.destroy({
+      where: {
+        com_id: comType.com_id,
+      },
+    });
+  } else {
+    result = await comment.destroy({
+      where: {
+        id,
+      },
+    });
+  }
+  if (result >= 1) {
+    ctx.body = {
+      status: 200,
+      message: '删除评论成功',
+      success: true,
+    };
+  } else {
+    ctx.cc('删除评论失败');
+  }
 };

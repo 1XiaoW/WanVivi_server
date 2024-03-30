@@ -129,6 +129,7 @@ exports.getVideoOne = async (ctx, next) => {
   let result = await videos.findAll({
     where: {
       id: vId,
+      state: 0,
     },
     include: [
       {
@@ -582,7 +583,7 @@ exports.getFiveVideosOfChannel = async (ctx, next) => {
   const results = await Promise.all(
     channelId.map(async (Id) => {
       return await videos.findAll({
-        where: { channel_id: Id },
+        where: { channel_id: Id, state: 0 },
         order: sequelize.literal('rand()'), // 使用 rand() 函数来随机排序
         attributes: [
           'duration',

@@ -5,6 +5,9 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 // 导入token工具
 const token = require('../utils/token');
+// 导入发送邮件包
+const { sendEmail } = require('../utils/email');
+const crypto = require('crypto');
 // 解构出joi对象(包含设定好的校验规则)
 const {
   reg_login_schema,
@@ -15,7 +18,7 @@ const {
 const { wvv_users } = require('../model/user');
 const { users_dynamic } = require('../model/dynamic');
 
-const { QueryTypes } = require('sequelize');
+const { QueryTypes, Op } = require('sequelize');
 const sequelize = require('../core/db');
 
 exports.reguser = async (ctx, next) => {
@@ -171,12 +174,24 @@ exports.getReadState = async (ctx, next) => {
 exports.putUserInfo = async (ctx, next) => {
   const userId = parseInt(ctx.params.id);
   // 校验请求体里的参数成功就解构出里面的数据
-  console.log(ctx.request.body);
-  const { nickname, email } = await update_userinfo_schema.validateAsync(
+  console.log(ctx.request.body.code);
+  const { nickname, email, code } = await update_userinfo_schema.validateAsync(
     ctx.request.body
   );
   // 根据 userId 查询需要修改的用户
   const user = await wvv_users.findByPk(userId);
+  if (user.email !== email) {
+    const hasCode = await ctx.redis.get(`code${email}`);
+    if (hasCode) {
+      if (hasCode != code) {
+        ctx.cc('验证码错误，请重试');
+        return;
+      }
+    } else {
+      ctx.cc('邮箱发生更改，请获取新邮箱的验证码输入');
+      return;
+    }
+  }
   if (!user) {
     // 如果用户不存在，返回 404 状态码
     ctx.cc('用户不存在');
@@ -190,7 +205,7 @@ exports.putUserInfo = async (ctx, next) => {
     user.email = email;
   }
   await user.save();
-
+  await ctx.redis.delete(`code${email}`);
   // 返回操作成功的消息
   ctx.cc('用户信息更改成功', 200, true);
 };
@@ -298,6 +313,7 @@ exports.putUserPwd = async (ctx, next) => {
 };
 
 exports.getOtherUserInfo = async (ctx, next) => {
+  const { offset, limit } = ctx.query;
   let rId = ctx.params.id;
   if (rId >= 0 || rId == -1) {
     let where =
@@ -308,9 +324,11 @@ exports.getOtherUserInfo = async (ctx, next) => {
               id: rId,
             },
           };
-
-    let result = await wvv_users.findAll({
+    let result = await wvv_users.findAndCountAll({
       ...where,
+      order: [['reg_date', 'DESC']],
+      offset: (offset - 1) * limit,
+      limit: limit - 0,
       attributes: [
         'id',
         'username',
@@ -325,12 +343,13 @@ exports.getOtherUserInfo = async (ctx, next) => {
       ctx.body = {
         status: 200,
         message: '获取用户信息成功',
-        data: result,
+        total: result.count,
+        data: result.rows,
         success: true,
       };
     } else {
       ctx.body = {
-        status: 401,
+        status: 404,
         message: '无该用户信息',
         success: true,
       };
@@ -381,4 +400,100 @@ exports.deleteDynamic = async (ctx, next) => {
     where: { user_id: id },
   });
   ctx.cc('删除动态成功', 200, true);
+};
+
+exports.searchByUsername = async (ctx, next) => {
+  const { username } = ctx.query;
+  // 使用 Sequelize 的 findAll 方法查询数据
+  const result = await wvv_users.findAll({
+    where: {
+      username: {
+        [Op.like]: `%${username}%`,
+      },
+    },
+    attributes: ['username', 'nickname', 'email', 'reg_date', 'signature'],
+  });
+  if (result.length !== 0)
+    ctx.body = {
+      status: 200,
+      message: '查询成功',
+      success: true,
+      data: result,
+    };
+  else {
+    ctx.cc('暂无更多');
+  }
+};
+
+exports.deleteUser = async (ctx, next) => {
+  const { userId } = ctx.query;
+  // 使用 Sequelize 的 destroy 方法删除数据
+  const result = await wvv_users.destroy({
+    where: {
+      id: userId,
+    },
+  });
+
+  if (result === 1) {
+    ctx.body = {
+      status: 200,
+      message: '删除用户成功',
+      success: true,
+    };
+  } else {
+    ctx.cc('删除用户失败');
+  }
+};
+
+exports.sendCode = async (ctx, next) => {
+  const { email } = ctx.request.body;
+  const randomCode = crypto.randomBytes(2).toString('hex').toUpperCase();
+  // HTML邮件模板
+  const htmlTemplate = `  
+<!DOCTYPE html>  
+<html lang="en">  
+<head>  
+    <meta charset="UTF-8">  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">  
+    <title>验证码邮件</title>  
+    <style>  
+        body {  
+            font-family: Arial, sans-serif;  
+            margin: 0;  
+            padding: 0;  
+            background-color: #f4f4f4;  
+        }  
+        .container {  
+            max-width: 600px;  
+            margin: 0 auto;  
+            background-color: #fff;  
+            padding: 30px;  
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);  
+            margin-top: 50px;  
+            margin-bottom: 50px;  
+        }  
+        h1 {  
+            text-align: center;  
+        }  
+        p {  
+            margin-top: 20px;  
+        }  
+    </style>  
+</head>  
+<body>  
+    <div class="container">  
+        <h1>欢迎来到我们的网站！</h1>  
+        <p>请使用以下验证码完成验证：</p>  
+        <p style="font-size: 20px; font-weight: bold; color: #3498db;"><!--VERIFICATION_CODE--></p>  
+        <p>如果您没有请求此验证码，请忽略此邮件。</p>  
+    </div>  
+</body>  
+</html>  
+`;
+
+  const res = await sendEmail(email, '您的验证码', htmlTemplate, randomCode);
+  if (res === 200) {
+    ctx.redis.set(`code${email}`, randomCode, 300);
+    ctx.cc('发送验证码成功', 200, true);
+  }
 };

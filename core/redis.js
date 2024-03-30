@@ -16,6 +16,7 @@ client.on('error', function (error) {
 const getAsync = promisify(client.get).bind(client);
 const setAsync = promisify(client.set).bind(client);
 const expireAsync = promisify(client.expire).bind(client);
+const delAsync = promisify(client.del).bind(client);
 
 // Koa2 全局中间件，将 Redis 客户端挂载到 ctx 上
 async function redisMiddleware(ctx, next) {
@@ -55,6 +56,21 @@ async function redisMiddleware(ctx, next) {
         } catch (error) {
           return val;
         }
+      }
+    },
+
+    /**
+     * 根据 key 删除 Redis 中的数据
+     * @param {string} key
+     * @returns {Promise<number>} 被删除的 key 的数量
+     */
+    async delete(key) {
+      try {
+        const count = await delAsync(key);
+        return count;
+      } catch (error) {
+        console.error('Redis delete error:', error);
+        return 0; // 如果删除失败，返回 0
       }
     },
   };

@@ -32,4 +32,11 @@ user.post('/auth/addDynamic/:id', user_handler.addDynamic);
 // 删除动态
 user.delete('/auth/deleteDynamic/:id', user_handler.deleteDynamic);
 
+// 按照用户名进行模糊查找
+user.get('/auth/searchByUsername', user_handler.searchByUsername);
+// 删除用户
+user.delete('/auth/deleteById', user_handler.deleteUser);
+
+// 发送验证码
+user.post('/auth/sendCode', user_handler.sendCode);
 module.exports = user;

@@ -25,7 +25,12 @@ const nickname = joi
   .error(new Error('昵称格式不正确'));
 const email = joi.string().email().error(new Error('邮箱格式不正确'));
 const name = joi.string();
-
+const code = joi
+  .string()
+  .empty('')
+  .length(4) // 验证码长度为4
+  .regex(/^[0-9A-F]+$/i) // 验证码只包含十六进制字符（不区分大小写）
+  .error(() => new Error('验证码格式不正确'));
 //验证avatar头像的验证规则
 const avatar = joi.string().dataUri().required();
 
@@ -41,6 +46,7 @@ exports.update_userinfo_schema = joi.object({
   name,
   nickname,
   email,
+  code,
 });
 
 //验证规则对象-更新密码
